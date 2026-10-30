@@ -22,6 +22,12 @@ pub async fn export_zone_meshes(ffxi_path: PathBuf, mut out_dir: PathBuf) -> Res
     fs::create_dir_all(&out_dir).await?;
     out_dir = fs::canonicalize(out_dir).await?;
 
+    let index: String = zone_infos
+        .iter()
+        .map(|zone_info| format!("{}\t{}\t{}\n", zone_info.id, zone_info.name, get_ximesh_filename(zone_info)))
+        .collect();
+    fs::write(out_dir.join("zones.tsv"), index).await?;
+
     let mut join_set: JoinSet<Result<()>> = JoinSet::new();
 
     for zone_info in zone_infos {

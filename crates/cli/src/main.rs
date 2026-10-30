@@ -1,6 +1,7 @@
 mod analyze_meshes;
 mod export_dat;
 mod export_ximesh;
+mod inspect_collision;
 mod make_dats;
 mod scan_dats;
 mod util;
@@ -15,7 +16,7 @@ use dats::base::DatId;
 use export_ximesh::export_zone_meshes;
 use make_dats::make_dats;
 
-use crate::{export_dat::export_dat, scan_dats::scan_dats};
+use crate::{export_dat::export_dat, inspect_collision::inspect_collision, scan_dats::scan_dats};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -53,6 +54,18 @@ enum Commands {
     ScanDats {
         #[arg(value_name = "FFXI_PATH")]
         ffxi_path: PathBuf,
+    },
+
+    InspectCollision {
+        #[arg(value_name = "FFXI_PATH")]
+        ffxi_path: PathBuf,
+
+        #[arg(value_name = "ZONE_ID")]
+        zone_id: u16,
+
+        /// x1 z1 x2 z2 y1 y2 in world space
+        #[arg(value_name = "BOUNDS", num_args = 6, allow_negative_numbers = true)]
+        bounds: Vec<f32>,
     },
 
     ExportDat {
@@ -94,6 +107,9 @@ async fn main() -> Result<()> {
         }
         Commands::ScanDats { ffxi_path } => {
             scan_dats(ffxi_path)?;
+        }
+        Commands::InspectCollision { ffxi_path, zone_id, bounds } => {
+            inspect_collision(ffxi_path, zone_id, bounds.try_into().unwrap())?;
         }
         Commands::ExportDat {
             ffxi_path,

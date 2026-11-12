@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use dats::{context::DatContext, formats::zone_data::zone_model::ZoneMesh, id_mapping::DatIdMapping};
@@ -7,14 +7,25 @@ use dats::{context::DatContext, formats::zone_data::zone_model::ZoneMesh, id_map
 pub fn inspect_collision(ffxi_path: PathBuf, zone_id: u16, bounds: [f32; 6]) -> Result<()> {
     let [x1, z1, x2, z2, y1, y2] = bounds;
     let dat_context = DatContext::from_ffxi_path(ffxi_path)?;
-    let zone_data_dat = DatIdMapping::get()
-        .zone_data
-        .get(&zone_id)
-        .ok_or(anyhow!("No zone data for {}", zone_id))?;
-    let zone_data = dat_context.get_data_from_dat(zone_data_dat)?;
-    let zone_mesh = ZoneMesh::parse_from_zone_data(&zone_data.dat)?;
+    let zone_data: dats::formats::zone_data::ZoneData = match std::env::var("RAW_DAT") {
+        Ok(raw) => dat_context.get_data_from_dat_id(dats::base::DatId::from(raw.parse::<u32>()?))?,
+        Err(_) => {
+            let zone_data_dat = DatIdMapping::get()
+                .zone_data
+                .get(&zone_id)
+                .ok_or(anyhow!("No zone data for {}", zone_id))?;
+            dat_context.get_data_from_dat(zone_data_dat)?.dat
+        }
+    };
+    let zone_mesh = ZoneMesh::parse_from_zone_data(&zone_data)?;
     let mesh = &zone_mesh.mesh;
 
+    let mut cellInfos: HashMap<(u32, u32), Vec<u32>> = HashMap::new();
+    for cell in &mesh.grid_cells {
+        for entry in &cell.indices {
+            cellInfos.entry((entry.block_idx, entry.placement_idx)).or_default().push(cell.info);
+        }
+    }
     let mut seen = HashSet::new();
     for cell in &mesh.grid_cells {
         for entry in &cell.indices {
@@ -53,16 +64,27 @@ pub fn inspect_collision(ffxi_path: PathBuf, zone_id: u16, bounds: [f32; 6]) -> 
                 }
                 if !header_printed {
                     println!(
-                        "block {} flags 0x{:04x} ({} tris) | placement {} data 0x{:08x} unk_floats {:?} unk_bytes {:?} unk_1 0x{:08x} unk_2 0x{:08x} coll4 0x{:x} y {:.2}..{:.2} o2w_opts {:?}",
+                        "block {} flags 0x{:04x} ({} tris) | placement {} data 0x{:08x} unk_floats {:?} unk_bytes {:?} unk_1 0x{:08x} unk_2 0x{:08x} coll4 0x{:x} y {:.2}..{:.2} o2w_opts {:?} cell infos {:?}",
                         entry.block_idx, block.flags, block.triangles.len(), entry.placement_idx, placement.data_field, placement.unk_floats,
-                        placement.unk_bytes, placement.unk_1, placement.unk_2, placement.unk_coll4_offset, placement.min_y, placement.max_y, placement.o2w_opts
+                        placement.unk_bytes, placement.unk_1, placement.unk_2, placement.unk_coll4_offset, placement.min_y, placement.max_y, placement.o2w_opts,
+                        cellInfos.get(&(entry.block_idx, entry.placement_idx)).map(|v| v.iter().map(|i| format!("0x{:08x}", i)).collect::<HashSet<_>>()).unwrap_or_default()
                     );
                     header_printed = true;
                 }
-                let normal = rotate(&block.normals[tri.normal_idx as usize]);
+                let stored = &block.normals[tri.normal_idx as usize];
+                let normal = rotate(stored);
+                let m = placement.unk_floats;
+                let byRows = [m[0] * stored.x + m[1] * stored.y + m[2] * stored.z, m[3] * stored.x + m[4] * stored.y + m[5] * stored.z, m[6] * stored.x + m[7] * stored.y + m[8] * stored.z];
+                let byColumns = [m[0] * stored.x + m[3] * stored.y + m[6] * stored.z, m[1] * stored.x + m[4] * stored.y + m[7] * stored.z, m[2] * stored.x + m[5] * stored.y + m[8] * stored.z];
                 println!(
-                    "  tri {:3} mat {} barrier {} invalid {} normal ({:.2}, {:.2}, {:.2}) corners {:?}",
-                    index, tri.material, tri.is_barrier as u8, tri.is_invalid_triangle as u8, normal[0], normal[1], normal[2],
+                    "  tri {:3} words 0x{:04x} 0x{:04x} 0x{:04x} 0x{:04x} mat {} barrier {} invalid {} normal ({:.2}, {:.2}, {:.2}) stored ({:.5}, {:.5}, {:.5}) unkRows ({:.5}, {:.5}, {:.5}) unkColumns ({:.5}, {:.5}, {:.5}) corners {:?}",
+                    index,
+                    tri.vertex1_idx | (((tri.material & 1) as u16) << 15),
+                    tri.vertex2_idx | ((tri.is_invalid_triangle as u16) << 14) | ((((tri.material >> 1) & 1) as u16) << 15),
+                    tri.vertex3_idx | ((tri.is_barrier as u16) << 14) | ((((tri.material >> 2) & 1) as u16) << 15),
+                    tri.normal_idx | ((((tri.material >> 3) & 1) as u16) << 15),
+                    tri.material, tri.is_barrier as u8, tri.is_invalid_triangle as u8, normal[0], normal[1], normal[2],
+                    stored.x, stored.y, stored.z, byRows[0], byRows[1], byRows[2], byColumns[0], byColumns[1], byColumns[2],
                     corners.iter().map(|c| format!("({:.2}, {:.2}, {:.2})", c[0], c[1], c[2])).collect::<Vec<_>>()
                 );
             }

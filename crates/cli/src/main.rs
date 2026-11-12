@@ -1,6 +1,10 @@
 mod analyze_meshes;
 mod export_dat;
 mod export_ximesh;
+mod ground_normals;
+mod sub_objects;
+mod shell_only;
+mod zero_normals;
 mod inspect_collision;
 mod count_models;
 mod make_dats;
@@ -17,7 +21,7 @@ use dats::base::DatId;
 use export_ximesh::export_zone_meshes;
 use make_dats::make_dats;
 
-use crate::{count_models::count_models, export_dat::export_dat, inspect_collision::inspect_collision, scan_dats::scan_dats};
+use crate::{count_models::count_models, ground_normals::ground_normals, sub_objects::sub_objects, shell_only::shell_only, zero_normals::zero_normals, export_dat::export_dat, inspect_collision::inspect_collision, scan_dats::scan_dats};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -34,6 +38,10 @@ enum Commands {
 
         #[arg(value_name = "OUT_DIR")]
         out_dir: Option<String>,
+
+        /// replace building shells with their sub-area interior models
+        #[arg(long)]
+        interiors: bool,
     },
 
     AnalyzeZoneMesh {
@@ -63,6 +71,42 @@ enum Commands {
 
         #[arg(value_name = "ZONE_ID")]
         zone_id: u16,
+    },
+
+    ZeroNormals {
+        #[arg(value_name = "FFXI_PATH")]
+        ffxi_path: PathBuf,
+    },
+
+    ShellOnly {
+        #[arg(value_name = "FFXI_PATH")]
+        ffxi_path: PathBuf,
+
+        #[arg(value_name = "ZONE_ID")]
+        zone_id: u16,
+    },
+
+    SubObjects {
+        #[arg(value_name = "FFXI_PATH")]
+        ffxi_path: PathBuf,
+
+        #[arg(value_name = "ZONE_ID")]
+        zone_id: u16,
+
+        /// first-character filter, e.g. "Mm"; empty = all
+        #[arg(value_name = "PREFIXES", default_value = "")]
+        prefixes: String,
+    },
+
+    GroundNormals {
+        #[arg(value_name = "FFXI_PATH")]
+        ffxi_path: PathBuf,
+
+        #[arg(value_name = "ZONE_ID")]
+        zone_id: u16,
+
+        #[arg(value_name = "POINTS_FILE")]
+        points_path: PathBuf,
     },
 
     InspectCollision {
@@ -97,10 +141,11 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Commands::ExportZoneMesh { ffxi_path, out_dir } => {
+        Commands::ExportZoneMesh { ffxi_path, out_dir, interiors } => {
             export_zone_meshes(
                 PathBuf::from(ffxi_path),
                 PathBuf::from(out_dir.unwrap_or(".".to_string())),
+                interiors,
             )
             .await?;
         }
@@ -119,6 +164,18 @@ async fn main() -> Result<()> {
         }
         Commands::CountModels { ffxi_path, zone_id } => {
             count_models(ffxi_path, zone_id)?;
+        }
+        Commands::ZeroNormals { ffxi_path } => {
+            zero_normals(ffxi_path)?;
+        }
+        Commands::ShellOnly { ffxi_path, zone_id } => {
+            shell_only(ffxi_path, zone_id)?;
+        }
+        Commands::SubObjects { ffxi_path, zone_id, prefixes } => {
+            sub_objects(ffxi_path, zone_id, prefixes)?;
+        }
+        Commands::GroundNormals { ffxi_path, zone_id, points_path } => {
+            ground_normals(ffxi_path, zone_id, points_path)?;
         }
         Commands::InspectCollision { ffxi_path, zone_id, bounds } => {
             inspect_collision(ffxi_path, zone_id, bounds.try_into().unwrap())?;

@@ -10,6 +10,7 @@ use crate::formats::zone_data::{math::TransformationMatrix, math::Vertex};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelBlockInstance {
     pub id: String,
+    pub raw_id: Vec<u8>,
     pub translation: Vertex,
     pub rotation: Vertex,
     pub scale: Vertex,
@@ -25,6 +26,9 @@ impl ModelBlockInstance {
         let mut nodes = Vec::with_capacity(node_count as usize);
 
         for _ in 0..node_count {
+            let start = walker.offset();
+            let raw_id = walker.take_bytes(16)?.to_vec();
+            walker.goto_usize(start);
             let id = walker.take_str_utf8_space_end(16)?;
             let translation = Vertex::parse(walker)?;
             let rotation = Vertex::parse(walker)?;
@@ -42,6 +46,7 @@ impl ModelBlockInstance {
 
             nodes.push(ModelBlockInstance {
                 id,
+                raw_id,
                 translation,
                 rotation,
                 scale,
